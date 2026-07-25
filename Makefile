@@ -1,6 +1,6 @@
 #   make all                       build everything locally
 #   make lint scan                 the gates CI enforces
-#   make push TAG=$(git rev-parse --short HEAD)
+#   make stage scan-staged promote TAG=$(git rev-parse --short HEAD)
 
 SHELL := /usr/bin/env bash
 .SHELLFLAGS := -euo pipefail -c
