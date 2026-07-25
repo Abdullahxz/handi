@@ -12,6 +12,14 @@ VERSION="${1:-}"
 shift || true
 ARCHES=("${@:-x86_64}")
 
+sha256_of() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1"
+    else
+        shasum -a 256 "$1"
+    fi
+}
+
 MIRROR="${ALPINE_MIRROR:-https://dl-cdn.alpinelinux.org/alpine}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEST="${REPO_ROOT}/alpine"
@@ -31,7 +39,7 @@ for arch in "${ARCHES[@]}"; do
     curl -fsSL --retry 3 -o "${DEST}/${tarball}" "${base_url}"
     expected="$(curl -fsSL --retry 3 "${base_url}.sha256" | awk '{print $1}')"
 
-    actual="$(cd "${DEST}" && { command -v sha256sum >/dev/null && sha256sum "${tarball}" || shasum -a 256 "${tarball}"; } | awk '{print $1}')"
+    actual="$(sha256_of "${DEST}/${tarball}" | awk '{print $1}')"
 
     if [[ "${expected}" != "${actual}" ]]; then
         echo "!! checksum mismatch for ${tarball}" >&2

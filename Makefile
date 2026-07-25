@@ -8,7 +8,7 @@ SHELL := /usr/bin/env bash
 
 REGISTRY       ?= abdullahxz
 ALPINE_VERSION ?= 3.24.1
-PG_MAJOR       ?= 14
+PG_MAJOR       ?= 17
 TAG            ?= dev
 
 # Add linux/arm64 after: scripts/fetch-rootfs.sh <version> aarch64
