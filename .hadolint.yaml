@@ -1,0 +1,20 @@
+failure-threshold: warning
+
+ignored:
+  # DL3018 — "pin versions in apk add".
+  # Intentional. Alpine repositories keep only the newest build per branch, so
+  # exact package pins become unbuildable within weeks and freeze known CVEs in
+  # the meantime. We pin the release *branch* and the base image *digest*, and
+  # rebuild on a schedule. See README, "Why package versions are not pinned".
+  - DL3018
+
+  # DL3029 — "do not use --platform with FROM".
+  # The alpine base uses --platform=$BUILDPLATFORM on a build-only stage, which
+  # is the documented way to avoid emulating tarball extraction during a
+  # cross-architecture build.
+  - DL3029
+
+trustedRegistries:
+  - docker.io
+  - index.docker.io
+  - registry-1.docker.io
