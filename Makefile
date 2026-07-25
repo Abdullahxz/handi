@@ -23,12 +23,20 @@ PSQL_IMAGE     := $(REGISTRY)/psql:$(PG_MAJOR)-$(TAG)
 
 BASE_IMAGE     ?= $(ALPINE_IMAGE)
 
+STAGING        ?= ghcr.io/abdullahxz/handi
+STAGE_ALPINE   := $(STAGING)/alpine
+STAGE_NETSHOOT := $(STAGING)/netshoot
+STAGE_PSQL     := $(STAGING)/psql
+DIGESTS        := dist/digests.env
+DIGEST_OF      := docker buildx imagetools inspect --format '{{.Manifest.Digest}}'
+
 TRIVY_IMAGE      ?= aquasec/trivy:latest
 HADOLINT_IMAGE   ?= hadolint/hadolint:latest-alpine
 SHELLCHECK_IMAGE ?= koalaman/shellcheck:stable
 
 COMMON_ARGS := --build-arg VCS_REF=$(VCS_REF) --build-arg BUILD_DATE=$(BUILD_DATE)
-BUILD_LOAD  := docker buildx build --load $(COMMON_ARGS)
+LOAD_BUILDER ?= $(or $(shell docker context show 2>/dev/null),default)
+BUILD_LOAD  := docker buildx build --builder $(LOAD_BUILDER) --load $(COMMON_ARGS)
 BUILD_PUSH  := docker buildx build --push --platform $(PLATFORMS) \
 	--sbom=true --provenance=mode=max $(COMMON_ARGS)
 
@@ -104,21 +112,53 @@ sbom: ## Write CycloneDX SBOMs to dist/
 			--output "/dist/$$(basename "$$out")" "$$img"; \
 	done
 
-.PHONY: push
-push: verify ## Build and push everything, children pinned to the base digest
-	$(BUILD_PUSH) --build-arg ALPINE_VERSION=$(ALPINE_VERSION) -t $(ALPINE_IMAGE) alpine
-	@digest=$$(docker buildx imagetools inspect $(ALPINE_IMAGE) --format '{{.Manifest.Digest}}'); \
-	echo ">> base digest $$digest"; \
-	$(MAKE) push-children BASE_IMAGE=$(REGISTRY)/alpine@$$digest
+.PHONY: stage
+stage: verify ## Build and push attested images to the staging registry
+	@mkdir -p dist
+	$(BUILD_PUSH) --build-arg ALPINE_VERSION=$(ALPINE_VERSION) -t $(STAGE_ALPINE):$(TAG) alpine
+	@base="$(STAGE_ALPINE)@$$($(DIGEST_OF) $(STAGE_ALPINE):$(TAG))"; \
+	echo ">> staged base $$base"; \
+	$(BUILD_PUSH) --build-arg BASE_IMAGE="$$base" --build-arg PG_MAJOR=$(PG_MAJOR) \
+		-t $(STAGE_PSQL):$(PG_MAJOR)-$(TAG) psql; \
+	$(BUILD_PUSH) --build-arg BASE_IMAGE="$$base" --target core \
+		-t $(STAGE_NETSHOOT):$(TAG) netshoot; \
+	$(BUILD_PUSH) --build-arg BASE_IMAGE="$$base" --target full \
+		-t $(STAGE_NETSHOOT):$(TAG)-full netshoot; \
+	{ echo "STAGED_ALPINE=$$base"; \
+	  echo "STAGED_PSQL=$(STAGE_PSQL)@$$($(DIGEST_OF) $(STAGE_PSQL):$(PG_MAJOR)-$(TAG))"; \
+	  echo "STAGED_NETSHOOT=$(STAGE_NETSHOOT)@$$($(DIGEST_OF) $(STAGE_NETSHOOT):$(TAG))"; \
+	  echo "STAGED_NETSHOOT_FULL=$(STAGE_NETSHOOT)@$$($(DIGEST_OF) $(STAGE_NETSHOOT):$(TAG)-full)"; \
+	} > $(DIGESTS)
+	@cat $(DIGESTS)
 
-.PHONY: push-children
-push-children: ## Push the derived images (requires BASE_IMAGE)
-	$(BUILD_PUSH) --build-arg BASE_IMAGE=$(BASE_IMAGE) --build-arg PG_MAJOR=$(PG_MAJOR) \
-		-t $(PSQL_IMAGE) psql
-	$(BUILD_PUSH) --build-arg BASE_IMAGE=$(BASE_IMAGE) --target core \
-		-t $(NETSHOOT_IMAGE) netshoot
-	$(BUILD_PUSH) --build-arg BASE_IMAGE=$(BASE_IMAGE) --target full \
-		-t $(NETSHOOT_IMAGE)-full netshoot
+.PHONY: scan-staged
+scan-staged: ## Scan the staged digests; fixable HIGH/CRITICAL fails the build
+	@set -a; . ./$(DIGESTS); set +a; \
+	for ref in "$$STAGED_ALPINE" "$$STAGED_PSQL" "$$STAGED_NETSHOOT" "$$STAGED_NETSHOOT_FULL"; do \
+		echo "== trivy $$ref"; \
+		docker run --rm -e TRIVY_USERNAME -e TRIVY_PASSWORD \
+			-v "$$HOME/.docker:/root/.docker:ro" $(TRIVY_IMAGE) \
+			image --scanners vuln --ignore-unfixed --exit-code 1 \
+			--severity HIGH,CRITICAL "$$ref"; \
+	done
+
+.PHONY: promote
+promote: ## Copy staged digests to the public registry, asserting bytes unchanged
+	@set -a; . ./$(DIGESTS); set +a; \
+	promote_one() { \
+		src="$$1"; dst="$$2"; want="$${src##*@}"; \
+		docker buildx imagetools create --tag "$$dst" "$$src"; \
+		got="$$($(DIGEST_OF) $$dst)"; \
+		if [ "$$got" != "$$want" ]; then \
+			echo "!! $$dst published as $$got but $$want was scanned" >&2; \
+			exit 1; \
+		fi; \
+		echo ">> $$dst == $$want"; \
+	}; \
+	promote_one "$$STAGED_ALPINE" "$(ALPINE_IMAGE)"; \
+	promote_one "$$STAGED_PSQL" "$(PSQL_IMAGE)"; \
+	promote_one "$$STAGED_NETSHOOT" "$(NETSHOOT_IMAGE)"; \
+	promote_one "$$STAGED_NETSHOOT_FULL" "$(NETSHOOT_IMAGE)-full"
 
 .PHONY: clean
 clean: ## Remove build artefacts

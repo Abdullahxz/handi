@@ -31,16 +31,15 @@ Two variants, because attack surface and usability pull in opposite directions a
 
 **full** (`--target full`) adds scanners, protocol dissectors, tracers, load generators, routing daemons, an SSH client and an editor — see `netshoot/Dockerfile` for the list. Use it on a jump host or a short-lived container, not as a resident DaemonSet: `nmap-scripts` is a large third-party Lua corpus, `tshark` dissectors have a long CVE history, and `speedtest-cli` talks to the public internet from inside your network.
 
-Raw-socket tools carry file capabilities rather than setuid root, so the image works unprivileged when the runtime grants the capability:
+Raw-socket tools carry `cap_net_raw` as a file capability rather than setuid root, so capture works as UID 65532 under the default capability sets of both Docker and Kubernetes — no extra flags:
 
 ```console
-$ docker run --rm -it --cap-add=NET_RAW --cap-add=NET_ADMIN netshoot:dev
+$ docker run --rm -it netshoot:dev tcpdump -i eth0
 
-$ kubectl debug -it pod/api-7f9c --image=netshoot:dev \
-      --target=api --profile=netadmin -- bash
+$ kubectl debug -it pod/api-7f9c --image=netshoot:dev --target=api -- bash
 ```
 
-Without them `dig`/`curl`/`ss`/`nc` still work and `tcpdump` reports permission denied, which is the correct failure mode, it never silently runs privileged.
+If the runtime drops `NET_RAW` (`--cap-drop=ALL`, or a `restricted` pod security profile) those binaries will not execute at all: the kernel refuses to exec a file whose effective capabilities fall outside the container's bounding set. Restore it with `--cap-add=NET_RAW` or `kubectl debug --profile=netadmin`. Promiscuous capture needs root.
 
 ## psql
 
@@ -56,5 +55,5 @@ $ docker run --rm -it -e PGPASSWORD=... psql:17-dev \
 - **One trust hop.** The base builds `FROM scratch` out of Alpine's release tarball, checksum-verified during the build, rather than inheriting a third-party image.
 - **Stable branch only.** Mixing `edge` into a stable base makes apk resolve nearly everything from `edge`. `swaks` is the sole package not in stable; it is scoped to one `--repository` call and drops out with `--build-arg WITH_EDGE_TOOLS=false`.
 - **Packages are not version-pinned.** Alpine keeps only the newest build per branch, so exact pins go unbuildable within weeks. Determinism comes from the pinned branch, digest-pinned bases and a weekly rebuild instead.
-- **Non-root, capabilities over root.** Leaf images run as UID `65532` (as a named `USER` fails Kubernetes `runAsNonRoot`). All setuid bits are stripped; `cap_net_raw`/`cap_net_admin` go on the few binaries that need them, which is what neither Docker nor Kubernetes grants ambiently to a non-root process.
-- **Signed and attested.** Pushed images carry SBOM and provenance attestations, signed with keyless cosign. `make push` publishes the base first, then rebuilds children against its digest.
+- **Non-root, capabilities over root.** Leaf images run as UID `65532` (as a named `USER` fails Kubernetes `runAsNonRoot`). All setuid bits are stripped; `cap_net_raw` goes on the few binaries that need it, which is what neither Docker nor Kubernetes grants ambiently to a non-root process.
+- **Scanned bytes are the published bytes.** CI pushes to a GHCR staging registry, scans those digests, then promotes to Docker Hub with `imagetools create` — a manifest copy, not a rebuild. `make promote` fails if the published digest differs from the scanned one, and the staging copies are deleted either way. Images carry SBOM and provenance attestations and are signed with keyless cosign after the gate passes.

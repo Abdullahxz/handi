@@ -65,7 +65,10 @@ RUN set -eux; \
         tshark \
         util-linux \
         vim \
-        websocat
+        websocat; \
+    # Alpine restricts dumpcap to the wireshark group, which means nothing in a
+    # single-user container and only makes tshark's live capture fail.
+    if [ -e /usr/bin/dumpcap ]; then chmod 0755 /usr/bin/dumpcap; fi
 
 # swaks is the only tool not carried by Alpine stable.
 RUN set -eux; \
@@ -86,6 +89,7 @@ USER 65532:65532
 WORKDIR /home/nonroot
 ENV HOME=/home/nonroot
 
+ARG BASE_IMAGE
 ARG VCS_REF=unknown
 ARG BUILD_DATE=unknown
 LABEL org.opencontainers.image.title="handi-netshoot-full" \
@@ -106,6 +110,7 @@ USER 65532:65532
 WORKDIR /home/nonroot
 ENV HOME=/home/nonroot
 
+ARG BASE_IMAGE
 ARG VCS_REF=unknown
 ARG BUILD_DATE=unknown
 LABEL org.opencontainers.image.title="handi-netshoot" \

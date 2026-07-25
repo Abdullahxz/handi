@@ -19,6 +19,7 @@ WORKDIR /home/nonroot
 ENV HOME=/home/nonroot \
     PSQL_HISTORY=/dev/null
 
+ARG BASE_IMAGE
 ARG VCS_REF=unknown
 ARG BUILD_DATE=unknown
 LABEL org.opencontainers.image.title="handi-psql" \

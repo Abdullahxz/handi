@@ -14,15 +14,16 @@ setcap_present() {
     for name in "$@"; do
         path="$(command -v "${name}" 2>/dev/null || true)"
         [ -n "${path}" ] || continue
+        if [ -L "${path}" ]; then
+            continue
+        fi
         setcap "${caps}" "${path}"
         printf 'hardened: setcap %s %s\n' "${caps}" "${path}"
     done
 }
 
-# Promiscuous mode needs NET_ADMIN on top of NET_RAW.
-setcap_present 'cap_net_raw,cap_net_admin+ep' tcpdump tshark dumpcap
-
 setcap_present 'cap_net_raw+ep' \
+    tcpdump tshark dumpcap \
     ping ping6 tracepath tracepath6 traceroute6 \
     mtr mtr-packet fping fping6 oping noping \
     nmap nping tcptraceroute dhcping
