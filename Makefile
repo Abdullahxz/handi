@@ -46,14 +46,16 @@ verify: ## Verify the vendored Alpine rootfs against SHA256SUMS
 
 .PHONY: lint
 lint: ## Lint Dockerfiles and shell scripts
-	@for f in alpine/Dockerfile netshoot/Dockerfile psql/Dockerfile; do \
+	@rc=0; \
+	for f in alpine/Dockerfile netshoot/Dockerfile psql/Dockerfile; do \
 		echo "== hadolint $$f"; \
 		docker run --rm -i -v "$$PWD/.hadolint.yaml:/.hadolint.yaml:ro" \
-			$(HADOLINT_IMAGE) hadolint --config /.hadolint.yaml - < "$$f"; \
-	done
-	@echo "== shellcheck"
-	@docker run --rm -v "$$PWD:/src:ro" -w /src $(SHELLCHECK_IMAGE) \
-		scripts/fetch-rootfs.sh netshoot/harden.sh
+			$(HADOLINT_IMAGE) hadolint --config /.hadolint.yaml - < "$$f" || rc=1; \
+	done; \
+	echo "== shellcheck"; \
+	docker run --rm -v "$$PWD:/src:ro" -w /src $(SHELLCHECK_IMAGE) \
+		scripts/fetch-rootfs.sh netshoot/harden.sh || rc=1; \
+	exit $$rc
 
 .PHONY: alpine
 alpine: verify ## Build the base image

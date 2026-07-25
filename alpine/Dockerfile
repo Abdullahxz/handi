@@ -38,7 +38,7 @@ ARG NONROOT_UID=65532
 ARG NONROOT_GID=65532
 
 RUN set -eux; \
-    branch="v$(echo "${ALPINE_VERSION}" | cut -d. -f1,2)"; \
+    branch="v${ALPINE_VERSION%.*}"; \
     printf '%s\n' \
         "${ALPINE_MIRROR}/${branch}/main" \
         "${ALPINE_MIRROR}/${branch}/community" \
@@ -53,6 +53,8 @@ RUN set -eux; \
     find / -xdev -type f -perm -4000 -exec chmod u-s {} ';'; \
     find / -xdev -type f -perm -2000 -exec chmod g-s {} ';'
 
+# Base image: stays root so children can install packages. Leaf images drop to 65532.
+# hadolint ignore=DL3002
 USER root
 WORKDIR /
 
